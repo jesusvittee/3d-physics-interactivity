@@ -59,9 +59,23 @@ const NUM_SPHERES = 100;
 const SPHERE_RADIUS = 0.2;
 const STEPS_PER_FRAME = 5;
 
-// --- Objetos y Jugador ---
+// --- Objetos (Gotas de Agua) ---
 const sphereGeometry = new THREE.IcosahedronGeometry(SPHERE_RADIUS, 5);
-const sphereMaterial = new THREE.MeshLambertMaterial({ color: 0xdede8d });
+
+// Material físico para efecto de agua transparente
+const sphereMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    metalness: 0,
+    roughness: 0.02,
+    transmission: 1.0, // Transparencia física
+    ior: 1.33,        // Índice de refracción del agua
+    thickness: 0.5,   // Grosor para refracción
+    specularIntensity: 1,
+    clearcoat: 1,
+    transparent: true,
+    opacity: 0.7
+});
+
 const spheres = [];
 let sphereIdx = 0;
 
@@ -69,6 +83,10 @@ for (let i = 0; i < NUM_SPHERES; i++) {
     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
     sphere.castShadow = true;
     sphere.receiveShadow = true;
+    
+    // Estiramos la malla en el eje Y para que parezca una gota
+    sphere.scale.set(0.7, 1.3, 0.7); 
+
     scene.add(sphere);
     spheres.push({
         mesh: sphere,
@@ -121,10 +139,17 @@ function onWindowResize() {
 function throwBall() {
     const sphere = spheres[sphereIdx];
     camera.getWorldDirection(playerDirection);
+    
     sphere.collider.center.copy(playerCollider.end).addScaledVector(playerDirection, playerCollider.radius * 1.5);
+    
+    // Orientar la gota hacia la dirección del disparo
+    sphere.mesh.lookAt(sphere.collider.center.clone().add(playerDirection));
+    sphere.mesh.rotateX(Math.PI / 2);
+
     const impulse = 15 + 30 * (1 - Math.exp((mouseTime - performance.now()) * 0.001));
     sphere.velocity.copy(playerDirection).multiplyScalar(impulse);
     sphere.velocity.addScaledVector(playerVelocity, 2);
+    
     sphereIdx = (sphereIdx + 1) % spheres.length;
 }
 
@@ -202,7 +227,8 @@ function updateSpheres(deltaTime) {
         sphere.collider.center.addScaledVector(sphere.velocity, deltaTime);
         const result = worldOctree.sphereIntersect(sphere.collider);
         if (result) {
-            sphere.velocity.addScaledVector(result.normal, -result.normal.dot(sphere.velocity) * 1.5);
+            // Rebote de agua (un poco menos elástico que una pelota)
+            sphere.velocity.addScaledVector(result.normal, -result.normal.dot(sphere.velocity) * 1.2);
             sphere.collider.center.add(result.normal.multiplyScalar(result.depth));
         } else {
             sphere.velocity.y -= GRAVITY * deltaTime;
@@ -214,6 +240,12 @@ function updateSpheres(deltaTime) {
     spheresCollisions();
     for (const sphere of spheres) {
         sphere.mesh.position.copy(sphere.collider.center);
+        
+        // Orientar la gota según su velocidad actual mientras cae
+        if (sphere.velocity.length() > 0.1) {
+            sphere.mesh.lookAt(sphere.mesh.position.clone().add(sphere.velocity));
+            sphere.mesh.rotateX(Math.PI / 2);
+        }
     }
 }
 
